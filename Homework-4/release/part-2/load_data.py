@@ -13,6 +13,10 @@ import torch
 
 PAD_IDX = 0
 
+# Additions to restrict Maximum Sequence Lengths
+MAX_ENCODER_LEN=128
+MAX_DECODER_LEN=256
+
 class T5Dataset(Dataset):
 
     def __init__(self, data_folder, split):
@@ -27,15 +31,59 @@ class T5Dataset(Dataset):
             * Class behavior should be different on the test set.
         '''
         # TODO
+        self.split=split
+        self.tokenizer=T5TokenizerFast.from_pretrained('google-t5/t5-small')
+        self.bos_token_id=self.tokenizer.convert_tokens_to_ids('<extra_id_0>')
+        self.encoder_ids, self.encoder_mask, self.decoder_inputs, self.decoder_targets, self.initial_decoder_inputs=self.process_data(data_folder, split, self.tokenizer)
 
     def process_data(self, data_folder, split, tokenizer):
         # TODO
+        nl_path=os.path.join(data_folder, f'{split}.nl')
+        with open(nl_path, 'r') as f:
+            nl_lines=[line.strip() for line in f.readlines()]
+        prefixed_nl=[f'translate English to SQL: {line}' for line in nl_lines]
+        encoder_enc=tokenizer(
+            prefixed_nl,
+            max_length=MAX_ENCODER_LEN,
+            truncation=True,
+            padding=False,
+            return_attention_mask=True
+        )
+        encoder_ids=[torch.tensor(ids,dtype=torch.long) for ids in encoder_enc['input_ids']]
+        encoder_mask=[torch.tensor(mask,dtype=torch.long) for mask in encoder_enc['attention_mask']]
+        initial_decoder_inputs=[torch.tensor([self.bos_token_id],dtype=torch.long) for _ in nl_lines]
+        if split=='test':
+            return encoder_ids, encoder_mask, None, None, initial_decoder_inputs
+        sql_path=os.path.join(data_folder,f'{split}.sql')
+        with open(sql_path,'r') as f:
+            sql_lines=[line.strip() for line in f.readlines()]
+        decoder_enc=tokenizer(
+            sql_lines,
+            max_length=MAX_DECODER_LEN,
+            truncation=True,
+            padding=False,
+            return_attention_mask=False
+        )
+        decoder_inputs=[]
+        decoder_targets=[]
+        for ids in decoder_enc['input_ids']:
+            # Decoder Input: BOS + all tokens except last
+            # Decoder Target: All tokens including EOS, shifted by one
+            dec_in=[self.bos_token_id]+ids[:-1]
+            dec_tgt=ids
+            decoder_inputs.append(torch.tensor(dec_in, dtype=torch.long))
+            decoder_targets.append(torch.tensor(dec_tgt, dtype=torch.long))
+        return encoder_ids, encoder_mask, decoder_inputs, decoder_targets, initial_decoder_inputs
     
     def __len__(self):
         # TODO
+        return len(self.encoder_ids)
 
     def __getitem__(self, idx):
         # TODO
+        if self.split=='test':
+            return (self.encoder_ids[idx], self.encoder_mask[idx], self.initial_decoder_inputs[idx])
+        return (self.encoder_ids[idx], self.encoder_mask[idx], self.decoder_inputs[idx], self.decoder_targets[idx], self.initial_decoder_inputs[idx])
 
 def normal_collate_fn(batch):
     '''
@@ -54,7 +102,15 @@ def normal_collate_fn(batch):
         * initial_decoder_inputs: The very first input token to be decoder (only to be used in evaluation)
     '''
     # TODO
-    return [], [], [], [], []
+    # return [], [], [], [], []
+    encoder_ids, encoder_mask, decoder_inputs, decoder_targets, initial_decoder_inputs=zip(*batch)
+    encoder_ids=pad_sequence(encoder_ids, batch_first=True, padding_value=PAD_IDX)
+    encoder_mask=pad_sequence(encoder_mask, batch_first=True, padding_value=0)
+    decoder_inputs=pad_sequence(decoder_inputs, batch_first=True, padding_value=PAD_IDX)
+    decoder_targets=pad_sequence(decoder_targets, batch_first=True, padding_value=PAD_IDX)
+    initial_decoder_inputs=torch.stack([x[0] for x in initial_decoder_inputs]).unsqueeze(1)
+    return encoder_ids, encoder_mask, decoder_inputs, decoder_targets, initial_decoder_inputs
+
 
 def test_collate_fn(batch):
     '''
@@ -70,7 +126,12 @@ def test_collate_fn(batch):
         * initial_decoder_inputs: The very first input token to be decoder (only to be used in evaluation)
     '''
     # TODO
-    return [], [], []
+    # return [], [], []
+    encoder_ids, encoder_mask, initial_decoder_inputs=zip(*batch)
+    encoder_ids=pad_sequence(encoder_ids, batch_first=True, padding_value=PAD_IDX)
+    encoder_mask=pad_sequence(encoder_mask, batch_first=True, padding_value=0)
+    initial_decoder_inputs=torch.stack([x[0] for x in initial_decoder_inputs]).unsqueeze(1)
+    return encoder_ids, encoder_mask, initial_decoder_inputs
 
 def get_dataloader(batch_size, split):
     data_folder = 'data'
@@ -97,4 +158,9 @@ def load_lines(path):
 
 def load_prompting_data(data_folder):
     # TODO
+    train_x=load_lines(os.path.join(data_folder, 'train.nl'))
+    train_y=load_lines(os.path.join(data_folder, 'train.sql'))
+    dev_x=load_lines(os.path.join(data_folder, 'dev.nl'))
+    dev_y=load_lines(os.path.join(data_folder, 'dev.sql'))
+    test_x=load_lines(os.path.join(data_folder, 'test.nl'))
     return train_x, train_y, dev_x, dev_y, test_x
