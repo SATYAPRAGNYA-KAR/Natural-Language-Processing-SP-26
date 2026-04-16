@@ -173,11 +173,22 @@ def eval_epoch(args, model, dev_loader, gt_sql_pth, model_sql_path, gt_record_pa
             num_tokens=torch.sum(non_pad).item()
             total_loss+=loss.item()*num_tokens
             total_tokens+=num_tokens
+            # generated=model.generate(
+            #     input_ids=encoder_input,
+            #     attention_mask=encoder_mask,
+            #     decoder_input_ids=initial_decoder_inputs.to(DEVICE),
+            #     generation_config=gen_config
+            # )
+            select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
             generated=model.generate(
                 input_ids=encoder_input,
                 attention_mask=encoder_mask,
-                decoder_input_ids=initial_decoder_inputs.to(DEVICE),
-                generation_config=gen_config
+                max_new_tokens=256,
+                num_beams=4,
+                early_stopping=True,
+                no_repeat_ngram_size=0,
+                forced_bos_token_id=None,
+                force_words_ids=[select_ids],  # Forcing SELECT to appear
             )
             decoded=tokenizer.batch_decode(generated, skip_special_tokens=True)
             all_generated_queries.extend(decoded)
@@ -211,11 +222,22 @@ def test_inference(args, model, test_loader, model_sql_path, model_record_path):
         for encoder_input, encoder_mask, initial_decoder_inputs in tqdm(test_loader):
             encoder_input=encoder_input.to(DEVICE)
             encoder_mask=encoder_mask.to(DEVICE)
+            # generated=model.generate(
+            #     input_ids=encoder_input,
+            #     attention_mask=encoder_mask,
+            #     decoder_input_ids=initial_decoder_inputs.to(DEVICE),
+            #     generation_config=gen_config
+            # )
+            select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
             generated=model.generate(
                 input_ids=encoder_input,
                 attention_mask=encoder_mask,
-                decoder_input_ids=initial_decoder_inputs.to(DEVICE),
-                generation_config=gen_config
+                max_new_tokens=256,
+                num_beams=4,
+                early_stopping=True,
+                no_repeat_ngram_size=0,
+                forced_bos_token_id=None,
+                force_words_ids=[select_ids],  # Forcing SELECT to appear
             )
             decoded=tokenizer.batch_decode(generated,skip_special_tokens=True)
             all_generated_queries.extend(decoded)
