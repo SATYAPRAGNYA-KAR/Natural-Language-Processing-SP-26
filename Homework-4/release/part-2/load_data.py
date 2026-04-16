@@ -41,6 +41,21 @@ CITIES=['DENVER','BOSTON','ATLANTA','DALLAS','PHILADELPHIA',
         'SEATTLE','WASHINGTON','BALTIMORE','PHOENIX','MILWAUKEE',
         'NEWARK','TAMPA','DETROIT','HOUSTON','MINNEAPOLIS']
 
+def augment_with_city_swap(nl_lines,sql_lines,n_augment=500):
+    augmented_nl, augmented_sql = [], []
+    for _ in range(n_augment):
+        idx=random.randint(0,len(nl_lines)-1)
+        nl,sql=nl_lines[idx],sql_lines[idx]
+        # Finding Cities present and Swapping them
+        for city in CITIES:
+            if city.lower() in nl.lower():
+                new_city=random.choice([c for c in CITIES if c!=city])
+                nl=re.sub(city,new_city, nl, flags=re.IGNORECASE)
+                sql=re.sub(f"'{city}'", f"'{new_city}'", sql)
+        augmented_nl.append(nl)
+        augmented_sql.append(sql)
+    return augmented_nl, augmented_sql
+
 class T5Dataset(Dataset):
 
     def __init__(self, data_folder, split):
@@ -74,21 +89,6 @@ class T5Dataset(Dataset):
         # Normalizing whitespace
         sql=re.sub(r'\s+', ' ',sql).strip()
         return sql
-    
-    def augment_with_city_swap(nl_lines,sql_lines,n_augment=500):
-        augmented_nl, augmented_sql = [], []
-        for _ in range(n_augment):
-            idx=random.randint(0,len(nl_lines)-1)
-            nl,sql=nl_lines[idx],sql_lines[idx]
-            # Finding Cities present and Swapping them
-            for city in CITIES:
-                if city.lower() in nl.lower():
-                    new_city=random.choice([c for c in CITIES if c!=city])
-                    nl=re.sub(city,new_city, nl, flags=re.IGNORECASE)
-                    sql=re.sub(f"'{city}'", f"'{new_city}'", sql)
-            augmented_nl.append(nl)
-            augmented_sql.append(sql)
-        return augmented_nl, augmented_sql
 
     def process_data(self, data_folder, split, tokenizer):
         # TODO
@@ -150,9 +150,9 @@ class T5Dataset(Dataset):
         with open(sql_path,'r') as f:
             sql_lines=[line.strip() for line in f.readlines()]
         sql_lines=[self.normalize_sql(line) for line in sql_lines]
-        # augment only for train split
+        # Augmenting only for Train split
         if split=='train':
-            aug_nl,aug_sql=augment_with_city_swap(nl_lines,sql_lines,n_augment=500)
+            aug_nl,aug_sql=augment_with_city_swap(nl_lines,sql_lines,n_augment=2500)
             nl_lines=nl_lines+aug_nl
             sql_lines=sql_lines+aug_sql
         prefixed_nl=[f'{SCHEMA_PREFIX}{line}' for line in nl_lines]
