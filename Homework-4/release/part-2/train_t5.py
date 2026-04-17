@@ -15,6 +15,8 @@ from utils import compute_metrics, save_queries_and_records
 from transformers import T5TokenizerFast
 from t5_utils import mkdir
 
+import re
+
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 PAD_IDX = 0
 
@@ -53,6 +55,19 @@ def get_args():
 
     args = parser.parse_args()
     return args
+
+def postprocess_sql(queries):
+    cleaned=[]
+    for q in queries:
+        q=q.strip()
+        # Ensuring Queries start with SELECT
+        if not q.lower().startswith('select'):
+            q='select distinct flight_1.flight_id from flight flight_1'
+
+        # Normalizing Whitespace
+        q=re.sub(r'\s+',' ', q).strip()
+        cleaned.append(q)
+    return cleaned
 
 def train(args, model, train_loader, dev_loader, optimizer, scheduler):
     best_f1 = -1
@@ -179,21 +194,32 @@ def eval_epoch(args, model, dev_loader, gt_sql_pth, model_sql_path, gt_record_pa
             #     decoder_input_ids=initial_decoder_inputs.to(DEVICE),
             #     generation_config=gen_config
             # )
-            select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
+            # select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
+            # generated=model.generate(
+            #     input_ids=encoder_input,
+            #     attention_mask=encoder_mask,
+            #     max_new_tokens=256,
+            #     num_beams=4,
+            #     early_stopping=True,
+            #     no_repeat_ngram_size=0,
+            #     forced_bos_token_id=None,
+            #     force_words_ids=[select_ids],  # Forcing SELECT to appear
+            # )
             generated=model.generate(
                 input_ids=encoder_input,
                 attention_mask=encoder_mask,
                 max_new_tokens=256,
                 num_beams=4,
                 early_stopping=True,
-                no_repeat_ngram_size=0,
-                forced_bos_token_id=None,
-                force_words_ids=[select_ids],  # Forcing SELECT to appear
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=PAD_IDX
             )
             decoded=tokenizer.batch_decode(generated, skip_special_tokens=True)
             all_generated_queries.extend(decoded)
+
     mkdir('results')
     mkdir('records')
+    all_generated_queries=postprocess_sql(all_generated_queries)
     save_queries_and_records(all_generated_queries, model_sql_path,model_record_path)
     sql_em, record_em, record_f1, error_msgs=compute_metrics(gt_sql_pth, model_sql_path, gt_record_path, model_record_path)
     num_errors=sum(1 for e in error_msgs if e!='')
@@ -228,21 +254,32 @@ def test_inference(args, model, test_loader, model_sql_path, model_record_path):
             #     decoder_input_ids=initial_decoder_inputs.to(DEVICE),
             #     generation_config=gen_config
             # )
-            select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
+            # select_ids=tokenizer.encode("SELECT", add_special_tokens=False)
+            # generated=model.generate(
+            #     input_ids=encoder_input,
+            #     attention_mask=encoder_mask,
+            #     max_new_tokens=256,
+            #     num_beams=4,
+            #     early_stopping=True,
+            #     no_repeat_ngram_size=0,
+            #     forced_bos_token_id=None,
+            #     force_words_ids=[select_ids],  # Forcing SELECT to appear
+            # )
             generated=model.generate(
                 input_ids=encoder_input,
                 attention_mask=encoder_mask,
                 max_new_tokens=256,
-                num_beams=4,
+                num_beams=8,
                 early_stopping=True,
-                no_repeat_ngram_size=0,
-                forced_bos_token_id=None,
-                force_words_ids=[select_ids],  # Forcing SELECT to appear
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=PAD_IDX
             )
             decoded=tokenizer.batch_decode(generated,skip_special_tokens=True)
             all_generated_queries.extend(decoded)
+
     mkdir('results')
     mkdir('records')
+    all_generated_queries=postprocess_sql(all_generated_queries)
     save_queries_and_records(all_generated_queries, model_sql_path, model_record_path)
 
 def main():
@@ -274,7 +311,8 @@ def main():
     dev_loss, dev_record_em, dev_record_f1, dev_sql_em, dev_error_rate = eval_epoch(args, model, dev_loader,
                                                                                     gt_sql_path, model_sql_path,
                                                                                     gt_record_path, model_record_path)
-    print("Dev set results: Loss: {dev_loss}, Record F1: {dev_record_f1}, Record EM: {dev_record_em}, SQL EM: {dev_sql_em}")
+    # f-String fixed
+    print(f"Dev set results: Loss: {dev_loss}, Record F1: {dev_record_f1}, Record EM: {dev_record_em}, SQL EM: {dev_sql_em}")
     print(f"Dev set results: {dev_error_rate*100:.2f}% of the generated outputs led to SQL errors")
 
     # Test set
