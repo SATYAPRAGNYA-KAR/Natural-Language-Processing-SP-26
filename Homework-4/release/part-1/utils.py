@@ -110,9 +110,9 @@ def custom_transform(example):
     if random.random()<0.4:
         text=re.sub(r'[,;]', '', text)
         words_for_punct=text.split()
-        num_insertions=max(1,len(words_for_punct)//15)
+        num_insertions=max(1, len(words_for_punct)//15)
         for _ in range(num_insertions):
-            pos=random.randint(1,max(1, len(words_for_punct)-1))
+            pos=random.randint(1, max(1, len(words_for_punct)-1))
             words_for_punct[pos]=words_for_punct[pos]+','
         text=' '.join(words_for_punct)
 
@@ -154,7 +154,6 @@ def custom_transform(example):
             transformed.append(word)
         i+=1
     example["text"]=TreebankWordDetokenizer().detokenize(transformed)
-    return example
 
     ##### YOUR CODE ENDS HERE ######
 
